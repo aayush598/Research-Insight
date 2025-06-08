@@ -4,34 +4,65 @@ import streamlit as st
 from fetch.arxiv_scraper import fetch_arxiv_papers, download_pdf
 from fetch.pdf_reader import extract_text_from_pdf
 from fetch.gemini_analyzer import analyze_papers_with_gemini
+from fetch.db_manager import (
+    init_db,
+    save_paper,
+    save_analysis,
+    get_papers_by_topic,
+    get_analysis_by_topic,
+)
 
-st.set_page_config(page_title="AI Research Analyzer", layout="wide")
+init_db()  # Initialize SQLite DB on app start
 
-st.title("🧠 AI-Powered Research Paper Analyzer")
-st.markdown("Enter a topic to analyze 3 recent arXiv papers using Gemini AI.")
+st.set_page_config(page_title="Research Insight", layout="wide")
+st.title("📚 Research Insight Tool")
+st.markdown("Get full research papers and detailed Gemini AI analysis based on your topic.")
 
-topic = st.text_input("🔍 Enter research topic")
+topic = st.text_input("🔍 Enter a research topic")
+submit = st.button("🚀 Submit")
 
-if topic.strip():
-    with st.spinner("🔍 Fetching papers..."):
-        papers = fetch_arxiv_papers(topic, max_results=3)
+if submit and topic.strip():
+    # Check if data already exists
+    existing_papers = get_papers_by_topic(topic)
+    existing_analysis = get_analysis_by_topic(topic)
 
-        if not papers:
-            st.error("No papers found.")
-        else:
-            paper_texts = []
-            for i, paper in enumerate(papers):
-                st.markdown(f"### Paper {i+1}: {paper['title']}")
-                st.markdown(f"[📄 Open PDF]({paper['pdf_link']})")
+    if existing_papers and existing_analysis:
+        st.success("🔁 Loaded from local database.")
+        for i, (title, content) in enumerate(existing_papers):
+            st.markdown(f"### 📄 Paper {i+1}: {title}")
+            with st.expander("🔎 View Full Paper"):
+                st.markdown(content)
 
-                pdf_path = download_pdf(paper["pdf_link"])
-                full_text = extract_text_from_pdf(pdf_path)
-                paper_texts.append(full_text)
+        st.subheader("📊 Gemini AI Analysis")
+        st.markdown(existing_analysis)
 
-    with st.spinner("🤖 Generating Gemini analysis..."):
-        gemini_response = analyze_papers_with_gemini(paper_texts)
+    else:
+        with st.spinner("⏳ Fetching papers and analyzing with Gemini..."):
+            papers = fetch_arxiv_papers(topic, max_results=3)
 
-    st.subheader("📊 Gemini Analysis")
-    st.markdown(gemini_response)
-else:
-    st.info("⏳ Please enter a topic to get started.")
+            if not papers:
+                st.error("❌ No research papers found for this topic.")
+            else:
+                paper_texts = []
+                for paper in papers:
+                    title = paper["title"]
+                    pdf_url = paper["pdf_link"]
+                    pdf_path = download_pdf(pdf_url)
+                    full_text = extract_text_from_pdf(pdf_path)
+
+                    # Store paper
+                    save_paper(topic, title, pdf_url, full_text)
+
+                    # Show paper content
+                    st.markdown(f"### 📄 {title}")
+                    with st.expander("🔎 View Full Paper"):
+                        st.markdown(full_text)
+
+                    paper_texts.append(full_text)
+
+                # Get Gemini analysis
+                gemini_response = analyze_papers_with_gemini(paper_texts)
+                save_analysis(topic, gemini_response)
+
+                st.subheader("📊 Gemini AI Analysis")
+                st.markdown(gemini_response)
