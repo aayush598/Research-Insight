@@ -1,2 +1,4 @@
 venv
 fetch/__pycache__
+data
+.env
